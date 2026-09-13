@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OutfitZone Admin</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f4f1;color:#111;font-family:Arial,sans-serif}
+.wrap{max-width:900px;margin:auto;padding:25px 18px 60px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+.logo{display:flex;gap:10px;align-items:center;font-weight:800;letter-spacing:.05em}.mark{width:40px;height:40px;border-radius:50%;background:#111;color:#fff;display:grid;place-items:center}
+.panel{background:#fff;border:1px solid #e4e2dd;border-radius:20px;padding:22px;margin-bottom:18px}h1{font-size:32px;margin:0 0 8px}h2{font-size:21px;margin-top:0}.muted{color:#707070;font-size:14px;line-height:1.5}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field{display:flex;flex-direction:column;gap:7px}.field.full{grid-column:1/-1}label{font-size:13px;font-weight:700}
+input,textarea,select{font:inherit;border:1px solid #d7d5d0;border-radius:11px;padding:12px;background:#fff;outline:none}textarea{min-height:90px;resize:vertical}input:focus,textarea:focus,select:focus{border-color:#111}
+.btn{border:0;border-radius:999px;padding:12px 17px;font-weight:700;cursor:pointer;background:#111;color:#fff}.btn.light{background:#fff;color:#111;border:1px solid #111}.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:18px}
+.preview{width:130px;height:130px;border-radius:14px;background:#e5e2dc;display:grid;place-items:center;overflow:hidden;color:#777;font-size:12px;text-align:center}.preview img{width:100%;height:100%;object-fit:cover}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:11px 7px;border-bottom:1px solid #eee;text-align:left}th{font-size:12px;color:#777}.num{font-weight:800}
+.notice{padding:12px;border-radius:12px;background:#f1f0ec;font-size:13px;margin-bottom:15px}
+@media(max-width:650px){.grid{grid-template-columns:1fr}.field.full{grid-column:auto}table{font-size:12px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top"><div class="logo"><span class="mark">OZ</span> OUTFITZONE</div><a href="index.html" class="btn light">Lihat Website</a></div>
+<div class="panel">
+<h1>Product Manager</h1>
+<p class="muted">Tambah dan kelola katalog affiliate langsung di database online OutfitZone melalui Supabase.</p>
+<div class="notice" id="authNotice">Memeriksa akses admin...</div>
+</div>
+
+<div class="panel" id="loginPanel">
+<h2>Login Admin</h2>
+<p class="muted">Gunakan email dan password akun yang terdaftar di Supabase Authentication.</p>
+<div class="grid">
+<div class="field"><label>Email</label><input id="email" type="email" placeholder="email@contoh.com"></div>
+<div class="field"><label>Password</label><input id="password" type="password" placeholder="Password"></div>
+</div>
+<div class="actions"><button class="btn" id="login">Login</button><button class="btn light" id="logout" style="display:none">Logout</button></div>
+<p class="muted" id="loginStatus"></p>
+</div>
+
+<div class="panel" id="productPanel" style="display:none">
+<h2 id="formTitle">Tambah Produk</h2>
+<div class="grid">
+<div class="field"><label>Nomor Produk *</label><input id="id" type="number" min="1" placeholder="10"></div>
+<div class="field"><label>Nama Produk *</label><input id="name" placeholder="Kaos Society"></div>
+<div class="field"><label>Kategori</label><input id="category" placeholder="Kaos"></div>
+<div class="field"><label>Harga (angka)</label><input id="price" type="number" min="0" placeholder="79900"></div>
+<div class="field full"><label>Deskripsi</label><textarea id="description" placeholder="Deskripsi singkat produk..."></textarea></div>
+<div class="field"><label>Link Affiliate TikTok Shop</label><input id="tiktok" type="url" placeholder="https://..."></div>
+<div class="field"><label>Link Affiliate Shopee</label><input id="shopee" type="url" placeholder="https://..."></div>
+<div class="field full"><label>Foto Produk</label><input id="imageFile" type="file" accept="image/*"><small class="muted">Foto akan disimpan ke database browser sebagai data gambar.</small></div>
+<div class="field full"><div class="preview" id="preview">Preview foto</div></div>
+</div>
+<div class="actions"><button class="btn" id="save">Simpan Produk</button><button class="btn light" id="cancel" style="display:none">Batal Edit</button></div>
+</div>
+
+<div class="panel">
+<h2>Database</h2>
+<div class="actions" style="margin-top:0"><button class="btn light" id="export">Export Database</button><label class="btn light" style="display:inline-block">Import Database <input id="import" type="file" accept=".json" hidden></label><button class="btn light" id="clear">Hapus Semua</button></div>
+<p class="muted" id="count"></p>
+<div style="overflow:auto;margin-top:14px"><table><thead><tr><th>#</th><th>Produk</th><th>Kategori</th><th>Aksi</th></tr></thead><tbody id="rows"></tbody></table></div>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL="https://fmortepukkawepghpcky.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY="sb_publishable_AVsr83Rf46lBxDa23j26cQ_xrETIRKz";
+const supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+
+let products=[],editId=null,imageFile=null,oldImageUrl="";
+const $=id=>document.getElementById(id);
+const rupiah=n=>n?new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(n):"";
+
+function resetForm(){
+ editId=null; imageFile=null; oldImageUrl="";
+ ["id","name","category","price","description","tiktok","shopee"].forEach(x=>$(x).value="");
+ $("imageFile").value="";
+ $("preview").innerHTML="Preview foto";
+ $("formTitle").textContent="Tambah Produk";
+ $("cancel").style.display="none";
+}
+
+function render(){
+ products.sort((a,b)=>a.product_number-b.product_number);
+ $("count").textContent=products.length+" produk dalam database Supabase.";
+ $("rows").innerHTML=products.map(p=>`
+ <tr>
+  <td class="num">#${String(p.product_number).padStart(2,"0")}</td>
+  <td>${escapeHtml(p.name)}</td>
+  <td>${escapeHtml(p.category||"-")}</td>
+  <td><button class="btn light" onclick="editProduct(${p.id})">Edit</button>
+  <button class="btn" onclick="deleteProduct(${p.id})">Hapus</button></td>
+ </tr>`).join("");
+}
+
+function escapeHtml(v){
+ return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+}
+
+async function loadProducts(){
+ const {data,error}=await supabaseClient.from("products").select("*").order("product_number",{ascending:true});
+ if(error){ $("loginStatus").textContent="Gagal memuat produk: "+error.message; return; }
+ products=data||[]; render();
+}
+
+async function uploadImage(file,productNumber){
+ const ext=(file.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"");
+ const path=`product-${productNumber}-${Date.now()}.${ext||"jpg"}`;
+ const {error}=await supabaseClient.storage.from("product-images").upload(path,file,{upsert:false,contentType:file.type||"image/jpeg"});
+ if(error) throw error;
+ const {data}=supabaseClient.storage.from("product-images").getPublicUrl(path);
+ return data.publicUrl;
+}
+
+$("imageFile").onchange=e=>{
+ imageFile=e.target.files[0]||null;
+ if(!imageFile){$("preview").innerHTML=oldImageUrl?`<img src="${oldImageUrl}">`:"Preview foto";return;}
+ const r=new FileReader();
+ r.onload=()=>{$("preview").innerHTML=`<img src="${r.result}">`};
+ r.readAsDataURL(imageFile);
+};
+
+$("save").onclick=async()=>{
+ const productNumber=Number($("id").value);
+ const name=$("name").value.trim();
+ if(!productNumber||!name)return alert("Nomor dan nama produk wajib diisi.");
+ if(products.some(p=>p.product_number===productNumber&&p.id!==editId))return alert("Nomor produk sudah digunakan.");
+
+ $("save").disabled=true;
+ try{
+   let imageUrl=oldImageUrl;
+   if(imageFile) imageUrl=await uploadImage(imageFile,productNumber);
+
+   const payload={
+     product_number:productNumber,
+     name,
+     category:$("category").value.trim()||"Lainnya",
+     price:Number($("price").value)||0,
+     image_url:imageUrl||null,
+     description:$("description").value.trim(),
+     tiktok_url:$("tiktok").value.trim()||null,
+     shopee_url:$("shopee").value.trim()||null,
+     updated_at:new Date().toISOString()
+   };
+
+   let result;
+   if(editId===null){
+     result=await supabaseClient.from("products").insert(payload);
+   }else{
+     result=await supabaseClient.from("products").update(payload).eq("id",editId);
+   }
+   if(result.error)throw result.error;
+
+   alert("Produk tersimpan di Supabase.");
+   resetForm();
+   await loadProducts();
+ }catch(e){
+   alert("Gagal menyimpan: "+e.message);
+ }finally{$("save").disabled=false;}
+};
+
+window.editProduct=id=>{
+ const p=products.find(x=>x.id===id); if(!p)return;
+ editId=id; oldImageUrl=p.image_url||""; imageFile=null;
+ $("id").value=p.product_number;
+ $("name").value=p.name||"";
+ $("category").value=p.category||"";
+ $("price").value=p.price||"";
+ $("description").value=p.description||"";
+ $("tiktok").value=p.tiktok_url||"";
+ $("shopee").value=p.shopee_url||"";
+ $("imageFile").value="";
+ $("preview").innerHTML=oldImageUrl?`<img src="${oldImageUrl}">`:"Preview foto";
+ $("formTitle").textContent="Edit Produk #"+p.product_number;
+ $("cancel").style.display="inline-block";
+ scrollTo({top:0,behavior:"smooth"});
+};
+
+window.deleteProduct=async id=>{
+ const p=products.find(x=>x.id===id); if(!p)return;
+ if(!confirm("Hapus produk #"+p.product_number+"?"))return;
+ const {error}=await supabaseClient.from("products").delete().eq("id",id);
+ if(error)return alert("Gagal menghapus: "+error.message);
+ await loadProducts();
+};
+
+$("cancel").onclick=resetForm;
+
+$("export").onclick=()=>{
+ const blob=new Blob([JSON.stringify(products,null,2)],{type:"application/json"});
+ const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="outfitzone-products-backup.json";a.click();URL.revokeObjectURL(a.href);
+};
+
+$("import").onchange=async e=>{
+ const f=e.target.files[0];if(!f)return;
+ try{
+   const d=JSON.parse(await f.text());
+   if(!Array.isArray(d))throw new Error("Format JSON tidak valid.");
+   for(const p of d){
+     const payload={
+       product_number:Number(p.product_number??p.id),name:p.name,category:p.category||"Lainnya",
+       price:Number(p.price)||0,image_url:p.image_url||p.image||null,description:p.description||"",
+       tiktok_url:p.tiktok_url||p.tiktok||null,shopee_url:p.shopee_url||p.shopee||null,
+       updated_at:new Date().toISOString()
+     };
+     const {error}=await supabaseClient.from("products").upsert(payload,{onConflict:"product_number"});
+     if(error)throw error;
+   }
+   alert("Database berhasil diimport ke Supabase.");
+   await loadProducts();
+ }catch(e){alert("Import gagal: "+e.message);}
+ $("import").value="";
+};
+
+$("clear").onclick=async()=>{
+ if(!confirm("Hapus SEMUA produk dari Supabase? Pastikan sudah export backup."))return;
+ const {error}=await supabaseClient.from("products").delete().neq("id",0);
+ if(error)return alert("Gagal menghapus: "+error.message);
+ await loadProducts();resetForm();
+};
+
+$("login").onclick=async()=>{
+ const email=$("email").value.trim(),password=$("password").value;
+ if(!email||!password)return alert("Email dan password wajib diisi.");
+ $("login").disabled=true;
+ const {error}=await supabaseClient.auth.signInWithPassword({email,password});
+ if(error){$("loginStatus").textContent="Login gagal: "+error.message;$("login").disabled=false;return;}
+ await updateAuthUI();
+ $("login").disabled=false;
+};
+
+$("logout").onclick=async()=>{await supabaseClient.auth.signOut();await updateAuthUI();};
+
+async function updateAuthUI(){
+ const {data:{session}}=await supabaseClient.auth.getSession();
+ const logged=!!session;
+ $("loginPanel").style.display=logged?"none":"block";
+ $("productPanel").style.display=logged?"block":"none";
+ $("logout").style.display=logged?"inline-block":"none";
+ $("authNotice").textContent=logged?"✅ Login admin aktif. Data tersimpan di Supabase.":"🔒 Silakan login untuk mengelola katalog.";
+ if(logged)await loadProducts();
+}
+supabaseClient.auth.onAuthStateChange(()=>updateAuthUI());
+updateAuthUI();
+</script>
+</body>
+</html>
